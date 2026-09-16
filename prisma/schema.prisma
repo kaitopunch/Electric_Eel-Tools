@@ -1,0 +1,202 @@
+// Schema giữ tập tính năng giao nhau giữa SQLite và PostgreSQL — không enum,
+// không mảng vô hướng, không kiểu JSON gốc — vì CÙNG file này chạy cả hai:
+// biến thể debug (`pnpm dev`) là SQLite, release (Vercel) là Postgres. Đây là
+// bản gốc duy nhất; `prisma.config.ts` chép nó thành `schema.sqlite.prisma`
+// với `provider` đổi đi khi DATABASE_URL là `file:`. Thêm một tính năng chỉ
+// Postgres có vào đây là làm `pnpm dev` gãy ở `prisma db push`.
+
+generator client {
+  // Generator mới của Prisma 7: sinh TypeScript thay vì JS đã đóng gói, nên
+  // Turbopack bundle được. Generator cũ `prisma-client-js` kéo theo require()
+  // các module tuỳ chọn mà bundler không giải được.
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  runtime      = "nodejs"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Tài khoản nội bộ. Không SSO — mật khẩu băm bằng bcrypt.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  /// "ADMIN" | "MEMBER". ADMIN quản trị được app và người dùng.
+  role         String   @default("MEMBER")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships AppMembership[]
+  auditLogs   AuditLog[]
+  createdApps FirebaseApp[]   @relation("AppCreator")
+
+  llmCredentials        UserLlmCredential[]
+  translationPreference TranslationPreference?
+
+  @@index([email])
+}
+
+/// Một project Firebase. Nhiều app dùng chung một tool — đây là ranh giới phân quyền.
+model FirebaseApp {
+  id          String   @id @default(cuid())
+  /// Định danh trên URL: /remote-config/{slug}
+  slug        String   @unique
+  displayName String
+  /// projectId của Firebase, dùng dựng URL Admin API.
+  projectId   String
+  /// applicationId của app Android, ví dụ "com.pion.lovetest". Nullable vì
+  /// những app tạo trước khi có trường này vẫn phải hợp lệ, và vì một project
+  /// Firebase có thể phục vụ nhiều package.
+  packageName String?
+  /// Service account JSON đã mã hoá AES-256-GCM. Không bao giờ rời server.
+  credentialCiphertext String?
+  /// Email của service account — hiển thị để đối chiếu, không phải bí mật.
+  credentialClientEmail String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?    @relation("AppCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  memberships  AppMembership[]
+  auditLogs    AuditLog[]
+  paramSchemas ParamSchema[]
+
+  @@index([slug])
+}
+
+/// Quyền của một người trên một app.
+model AppMembership {
+  id     String @id @default(cuid())
+  userId String
+  appId  String
+  /// "VIEWER" | "EDITOR" | "PUBLISHER"
+  role   String @default("VIEWER")
+
+  createdAt DateTime @default(now())
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  app  FirebaseApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, appId])
+  @@index([appId])
+}
+
+/// Nhật ký thao tác. Ghi cả bản diff để truy được ai đổi gì, lúc nào.
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  appId     String?
+  /// "TEMPLATE_FETCH" | "TEMPLATE_VALIDATE" | "TEMPLATE_PUBLISH" | "APP_CREATE" | ...
+  action    String
+  /// Tham số Remote Config bị tác động, nếu có.
+  targetKey String?
+  /// Tóm tắt thay đổi dạng JSON (chuỗi hoá). Không chứa credential.
+  detailJson String?
+  /// Địa chỉ IP và User-Agent của request. Không có hai trường này thì một
+  /// chuỗi LOGIN_FAILED chỉ nói "có người gõ sai mật khẩu", không nói được
+  /// đó là một người quên mật khẩu hay một máy đang dò.
+  ipAddress String?
+  userAgent String?
+  succeeded Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  app  FirebaseApp? @relation(fields: [appId], references: [id], onDelete: SetNull)
+
+  @@index([appId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Quyết định "hybrid": hai tham số quen thuộc có form dựng sẵn trong code,
+/// còn tham số mới thì admin tự khai schema ở đây và form tự sinh theo.
+model ParamSchema {
+  id        String   @id @default(cuid())
+  /// null = schema dùng chung cho mọi app.
+  appId     String?
+  /// Khoá tham số trên Firebase Remote Config, ví dụ "config_show_ads".
+  paramKey  String
+  /// Định nghĩa schema (chuỗi JSON) — xem src/domain/schema/ParamSchema.ts.
+  schemaJson String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  app FirebaseApp? @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, paramKey])
+  @@index([paramKey])
+}
+
+
+/// Một lần thử thất bại, dùng để đếm nhịp (rate limit).
+///
+/// Đếm trong DB chứ không trong bộ nhớ tiến trình: bộ nhớ mất khi restart, và
+/// không chia sẻ được nếu sau này chạy nhiều instance — lúc đó mỗi instance sẽ
+/// cấp riêng cho kẻ dò một hạn mức đầy đủ.
+model RateLimitHit {
+  id String @id @default(cuid())
+  /// Khoá gộp, ví dụ "login:email:a@b.com" hoặc "login:ip:1.2.3.4".
+  bucket    String
+  createdAt DateTime @default(now())
+
+  @@index([bucket, createdAt])
+  @@index([createdAt])
+}
+
+/// Khoá API mô hình ngôn ngữ của TỪNG người dùng, mã hoá AES-256-GCM.
+///
+/// Vì sao theo người dùng chứ không theo biến môi trường: hạn mức và hoá đơn
+/// của OpenAI/Gemini tính theo khoá. Một khoá dùng chung nghĩa là một người
+/// dịch cả trăm ngôn ngữ thì cả nhóm cùng nhận 429, và không ai biết phần chi
+/// phí nào là của ai.
+///
+/// Bản mã dùng ĐÚNG cipher của service account Firebase
+/// (`data/remote-config/ServiceAccountCipher.ts`) nên cùng một khoá
+/// `CREDENTIAL_ENCRYPTION_KEY` và cùng một lệnh `pnpm rotate:key`. Tên file
+/// cipher nói "service account" là hẹp hơn thực tế — xem LLM.md §11.
+model UserLlmCredential {
+  id     String @id @default(cuid())
+  userId String
+  /// "openai" | "gemini". Không enum vì SQLite không có.
+  provider String
+  /// Khoá API đã mã hoá. Không bao giờ rời máy chủ ở dạng đọc được.
+  apiKeyCiphertext String
+  /// Bốn ký tự cuối của khoá gốc, để vẽ "••••3f9a" mà không phải giải mã.
+  /// Bốn ký tự không đủ để dựng lại khoá, nhưng đủ để người dùng nhận ra khoá nào.
+  keyHint String
+  /// Model đang chọn cho nhà cung cấp này, ví dụ "gpt-4o-mini".
+  model String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+/// Lựa chọn của một người ở màn Dịch. Tách khỏi `UserLlmCredential` vì đây là
+/// sở thích, không phải bí mật — và vì nó tồn tại cả khi chưa có khoá nào.
+model TranslationPreference {
+  /// Một người một hàng, nên chính `userId` làm khoá chính.
+  userId String @id
+  /// Nhà cung cấp đang chọn: "openai" | "gemini".
+  provider String @default("openai")
+  /// Tên dòng app, đi vào prompt làm ngữ cảnh.
+  appName String @default("")
+  /// Mô tả app — app làm gì, cho ai. Cùng một từ tiếng Anh dịch khác nhau tuỳ
+  /// app, và tên app thường không đủ để mô hình đoán ra ngữ cảnh đó.
+  appDescription String @default("")
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

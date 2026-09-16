@@ -1,0 +1,130 @@
+import { AppErrors } from '@/core/result'
+import { serverContainer } from '@/di/server'
+import { isSafeSerial } from '@/domain/adb/entities/AdbDevice'
+import { isSafePackageName } from '@/domain/adb/entities/AndroidPackage'
+import type { LogcatEvent, LogcatRequest } from '@/domain/adb/entities/LogcatSession'
+import { clearLogcatBuffer } from '@/domain/adb/usecases/adbCommands'
+import { createFollowEventBatcher } from '@/domain/adb/usecases/batchFollowEvents'
+import { followAppLogcat } from '@/domain/adb/usecases/followAppLogcat'
+import { jsonError, jsonOk } from '@/lib/api/response'
+import { requireUser } from '@/lib/session'
+
+/**
+ * Luồng log của một app, chảy về dưới dạng NDJSON.
+ *
+ * Dòng được gom theo nhịp trước khi đẩy — lý do và nhịp nằm ở
+ * `createFollowEventBatcher`, dùng chung với đường WebUSB.
+ *
+ * ─── Vòng đời ───
+ *
+ * Luồng sống đúng bằng vòng đời request. Trình duyệt đóng tab thì Next huỷ
+ * `request.signal`, use case thoát vòng lặp, `spawn` bị giết. Không có tiến
+ * trình adb nào ở lại sau khi không còn ai đọc.
+ */
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export async function POST(request: Request) {
+  const user = await requireUser()
+  if (!user.ok) return jsonError(user.error)
+
+  const settings = serverContainer.adb.settings()
+  if (!settings.ok) return jsonError(settings.error)
+
+  let body: LogcatRequest | null = null
+  try {
+    body = (await request.json()) as LogcatRequest
+  } catch {
+    return jsonError(AppErrors.validation('Nội dung yêu cầu không phải JSON hợp lệ.'))
+  }
+
+  const serial = typeof body?.serial === 'string' ? body.serial.trim() : ''
+  const packageName = typeof body?.packageName === 'string' ? body.packageName.trim() : ''
+
+  // Kiểm ở đây để một yêu cầu sai được trả lời bằng mã 400 THẲNG, thay vì mở
+  // một luồng rồi mới báo lỗi trong dòng đầu tiên của nó. Bên kia là màn hình
+  // của mình, nhưng một lệnh gọi API viết tay cũng đi vào đúng chỗ này.
+  if (!isSafeSerial(serial)) {
+    return jsonError(AppErrors.validation('Serial thiết bị không hợp lệ.'))
+  }
+  if (!isSafePackageName(packageName)) {
+    return jsonError(AppErrors.validation('Tên package không hợp lệ.'))
+  }
+
+  const clearFirst = body?.clearFirst === true
+
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false
+
+      const send = (event: LogcatEvent): void => {
+        if (closed) return
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        } catch {
+          // Trình duyệt đã đóng kết nối. Không còn ai nghe, nên ngừng ghi.
+          closed = true
+        }
+      }
+
+      const batcher = createFollowEventBatcher(send)
+
+      const outcome = await followAppLogcat(
+        { shell: serverContainer.adb.shell },
+        { serial, packageName, clearFirst },
+        batcher.emit,
+        request.signal,
+      )
+
+      batcher.stop()
+
+      if (!outcome.ok && outcome.error.kind !== 'cancelled') {
+        send({
+          type: 'failed',
+          kind: outcome.error.kind,
+          message: outcome.error.message,
+          ...(outcome.error.detail !== undefined ? { detail: outcome.error.detail } : {}),
+        })
+      }
+
+      closed = true
+      try {
+        controller.close()
+      } catch {
+        // Kết nối đã đứt trước đó. Không có gì phải dọn thêm.
+      }
+    },
+  })
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store, no-transform',
+      // Nói với nginx đứng trước: đừng gom bộ đệm. Không có dòng này thì log
+      // về thành từng cục vài chục KB và mất hết ý nghĩa thời gian thực.
+      'X-Accel-Buffering': 'no',
+    },
+  })
+}
+
+/** `adb logcat -c` — xoá đệm log NẰM TRÊN MÁY. Khác với xoá màn hình. */
+export async function DELETE(request: Request) {
+  const user = await requireUser()
+  if (!user.ok) return jsonError(user.error)
+
+  const settings = serverContainer.adb.settings()
+  if (!settings.ok) return jsonError(settings.error)
+
+  const serial = new URL(request.url).searchParams.get('serial')?.trim() ?? ''
+  if (serial.length === 0) {
+    return jsonError(AppErrors.validation('Thiếu serial thiết bị.'))
+  }
+
+  const cleared = await clearLogcatBuffer(serverContainer.adb.shell, serial, request.signal)
+  if (!cleared.ok) return jsonError(cleared.error)
+
+  return jsonOk({ cleared: true })
+}

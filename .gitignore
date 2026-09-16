@@ -1,0 +1,63 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# prisma
+src/generated/
+# bản chép của schema.prisma với provider = sqlite, prisma.config.ts sinh lại mỗi lần chạy
+prisma/schema.sqlite.prisma
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# env — không bao giờ commit, TRỪ .env.development: chỉ trỏ vào dev.db, không
+# có bí mật, và nhờ nó clone về là `pnpm dev` chạy được ngay
+.env
+.env.local
+.env.*.local
+.env.production
+
+# credential Firebase tải về máy
+*service-account*.json
+
+# macos
+.DS_Store
+
+# gitnexus
+.gitnexus/run.cjs
+
+# python cache (skill scripts trong .claude/)
+__pycache__/
+*.py[cod]
+
+# log & báo cáo test
+*.log
+npm-debug.log*
+pnpm-debug.log*
+coverage/
+test-results/
+
+# cache build/deploy
+.turbo/
+.vercel/
+
+# cấu hình máy cá nhân, không chia sẻ
+.claude
+.idea/
+.vscode/
+LLM.md
+docs
+plans
+.vercel
+.env*
+!.env.development
+.windsurf
+.agents
+skills-lock.json

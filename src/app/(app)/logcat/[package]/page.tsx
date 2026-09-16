@@ -1,0 +1,81 @@
+import Alert from '@mui/material/Alert'
+import Stack from '@mui/material/Stack'
+import type { Metadata } from 'next'
+
+import { serverContainer } from '@/di/server'
+import { isSafeSerial } from '@/domain/adb/entities/AdbDevice'
+import { isSafePackageName } from '@/domain/adb/entities/AndroidPackage'
+import { AdbLogcatRoot } from '@/features/adb-logcat/AdbLogcatRoot'
+import { requireUser } from '@/lib/session'
+import { LinkButton } from '@/ui/components/NavLink'
+
+interface PageProps {
+  params: Promise<{ package: string }>
+  searchParams: Promise<{ serial?: string }>
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { package: packageName } = await params
+  return { title: `Logcat · ${decodeURIComponent(packageName)}` }
+}
+
+/**
+ * Màn log của một app.
+ *
+ * `serial` đi qua query string chứ không qua state trong bộ nhớ, và đó là chủ
+ * ý: một đường dẫn đầy đủ mở lại được sau khi tải lại trang, dán được cho đồng
+ * nghiệp ngồi cùng mạng, và mở được hai tab cho hai máy để so log của cùng một
+ * app trên hai đời Android.
+ *
+ * Cả hai tham số đều được kiểm ngay tại đây. Chúng đến từ URL, tức là từ chỗ
+ * bất kỳ ai cũng gõ được, và chúng sẽ trở thành tham số của một tiến trình —
+ * nên chỗ chặn phải ở ngay cửa, đừng để nó đi sâu thêm một tầng nào.
+ */
+export default async function AdbLogcatPage({ params, searchParams }: PageProps) {
+  const user = await requireUser()
+  if (!user.ok) {
+    return <Alert severity="error">{user.error.message}</Alert>
+  }
+
+  const access = serverContainer.adb.access()
+
+  const { package: rawPackage } = await params
+  const { serial: rawSerial } = await searchParams
+
+  const packageName = decodeURIComponent(rawPackage).trim()
+  const serial = (rawSerial ?? '').trim()
+
+  if (!isSafePackageName(packageName) || !isSafeSerial(serial)) {
+    return (
+      <Stack spacing={4} sx={{ maxWidth: 640 }}>
+        <Alert severity="error">
+          {serial.length === 0
+            ? 'Đường dẫn này thiếu thiết bị. Chọn lại app từ danh sách để mở đúng máy.'
+            : 'Đường dẫn không hợp lệ.'}
+        </Alert>
+        <LinkButton href="/logcat" variant="outlined" sx={{ alignSelf: 'flex-start' }}>
+          Về danh sách app
+        </LinkButton>
+      </Stack>
+    )
+  }
+
+  // Không chặn trang khi máy chủ thiếu scrcpy-server: xem log vẫn phải chạy
+  // được; chỉ có nút "Phản chiếu" là không hiện. Lý do thiếu nằm trong lỗi của
+  // `readMirrorSettings` — không nhắc ở đây để cảnh báo không nằm cạnh mọi lượt xem log.
+  // Ở đường WebUSB mirror chưa có (scrcpy vẫn chạy ở máy chủ) — xem LLM.md §11.
+  const mirrorAvailable = access === 'server' && serverContainer.deviceMirror.settings().ok
+
+  return (
+    // `key` buộc dựng lại ViewModel khi đổi app hoặc đổi máy: đệm log của lượt
+    // trước không còn nghĩa gì, và một luồng cũ còn chảy vào màn hình mới là
+    // kiểu lỗi rất khó nhìn ra.
+    <AdbLogcatRoot
+      key={`${serial}:${packageName}`}
+      access={access}
+      serial={serial}
+      packageName={packageName}
+      mirrorAvailable={mirrorAvailable}
+    />
+  )
+}
