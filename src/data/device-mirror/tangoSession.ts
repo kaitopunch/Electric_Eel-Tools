@@ -1,5 +1,7 @@
-import 'server-only'
-
+// Không `import 'server-only'` — CỐ Ý: file này chạy ở CẢ HAI đường mirror.
+// Đường máy chủ (`TangoMirrorGateway`) và đường trình duyệt
+// (`webusb/WebUsbMirrorRepository`) cùng bọc một phiên Tango đã bắt tay xong;
+// không có `node:*` ở đây, và Tango vốn viết cho trình duyệt trước.
 import type { Adb } from '@yume-chan/adb'
 import type { AdbScrcpyClient, AdbScrcpyOptions3_3_3 } from '@yume-chan/adb-scrcpy'
 import type { ScrcpyMediaStreamPacket } from '@yume-chan/scrcpy'
@@ -54,6 +56,10 @@ async function* iteratePackets(reader: StreamReader<ScrcpyMediaStreamPacket>): A
  * đời transport. Bỏ bước thứ hai là mỗi phiên (kể cả mỗi lần đổi chất lượng)
  * rò một socket tới cổng 5037 cho tới khi rút cáp.
  *
+ * `adb` là `undefined` khi phiên KHÔNG sở hữu transport: ở đường WebUSB,
+ * `Adb` thuộc `WebUsbDeviceHub` và sống chung cho cả tab (logcat đang chảy
+ * trên cùng kết nối) — đóng nó ở đây là màn log bên cạnh mất máy không lý do.
+ *
  * Trần 3s: `close()` có thể treo nếu socket đã đứt (rút cáp). Dùng được cả ở
  * nhánh lỗi giữa `start()` — khi đó `scrcpy` có thể còn `undefined`.
  */
@@ -69,7 +75,12 @@ export async function closeTangoResources(scrcpy: ScrcpyClient | undefined, adb:
  * Bọc một phiên Tango đã bắt tay xong thành `MirrorDeviceSession` — kiểu web
  * chuẩn, không lộ gì của Tango ra khỏi `data/`.
  */
-export function createTangoSession(scrcpy: ScrcpyClient, adb: Adb, videoStream: VideoStream): MirrorDeviceSession {
+export function createTangoSession(
+  scrcpy: ScrcpyClient,
+  /** `undefined` = phiên mượn transport của người khác, không được đóng — xem `closeTangoResources`. */
+  adb: Adb | undefined,
+  videoStream: VideoStream,
+): MirrorDeviceSession {
   // `getReader()` khoá luồng — gọi ĐÚNG MỘT LẦN ở đây, không phải bên trong
   // `packets()` (route chỉ gọi nó một lần cho mỗi phiên).
   const videoReader = videoStream.stream.getReader()
@@ -96,7 +107,10 @@ export function createTangoSession(scrcpy: ScrcpyClient, adb: Adb, videoStream: 
   // làm lô sau bị bỏ.
   let controlQueue: Promise<unknown> = Promise.resolve()
 
-  let closed = false
+  // Một promise đóng dùng chung: `close()` bị gọi hai lần (listener huỷ và
+  // `finally` của người đọc) thì lần hai CHỜ lần một xong, không trả về ngay
+  // trong lúc scrcpy-server còn đang bị giết.
+  let closing: Promise<void> | null = null
 
   return {
     meta: {
@@ -119,10 +133,16 @@ export function createTangoSession(scrcpy: ScrcpyClient, adb: Adb, videoStream: 
       controlQueue = turn.catch(() => undefined)
       return turn
     },
-    close: async () => {
-      if (closed) return
-      closed = true
-      await closeTangoResources(scrcpy, adb)
+    close: () => {
+      closing ??= (async () => {
+        // `scrcpy.close()` chỉ đóng socket của tiến trình shell — video socket
+        // thì trông chờ MÁY đóng sau khi app_process chết. Rút cáp hay máy treo
+        // đúng lúc này thì `reader.read()` treo mãi và `packets()` không bao
+        // giờ kết thúc; huỷ reader từ phía mình để vòng đọc thoát chắc chắn.
+        await videoReader.cancel().catch(() => undefined)
+        await closeTangoResources(scrcpy, adb)
+      })()
+      return closing
     },
   }
 }

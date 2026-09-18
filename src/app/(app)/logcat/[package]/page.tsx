@@ -60,11 +60,12 @@ export default async function AdbLogcatPage({ params, searchParams }: PageProps)
     )
   }
 
-  // Không chặn trang khi máy chủ thiếu scrcpy-server: xem log vẫn phải chạy
-  // được; chỉ có nút "Phản chiếu" là không hiện. Lý do thiếu nằm trong lỗi của
+  // Đường `webusb` (production): scrcpy-server là tệp tĩnh trong `public/`,
+  // không cần gì ở máy chủ → luôn mở được. Đường `server`: không chặn trang
+  // khi máy chủ thiếu scrcpy-server — xem log vẫn phải chạy được; chỉ có nút
+  // "Phản chiếu" là không hiện. Lý do thiếu nằm trong lỗi của
   // `readMirrorSettings` — không nhắc ở đây để cảnh báo không nằm cạnh mọi lượt xem log.
-  // Ở đường WebUSB mirror chưa có (scrcpy vẫn chạy ở máy chủ) — xem LLM.md §11.
-  const mirrorAvailable = access === 'server' && serverContainer.deviceMirror.settings().ok
+  const mirrorAvailable = access === 'webusb' || serverContainer.deviceMirror.settings().ok
 
   return (
     // `key` buộc dựng lại ViewModel khi đổi app hoặc đổi máy: đệm log của lượt

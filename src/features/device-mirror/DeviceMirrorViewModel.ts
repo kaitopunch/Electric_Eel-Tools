@@ -1,5 +1,6 @@
 import { defineViewModel } from '@/core/mvi'
-import { clientContainer } from '@/di/client'
+import { mirrorRepositoryFor } from '@/di/client'
+import type { AdbAccess } from '@/domain/adb/entities/AdbAccess'
 import type { MirrorVideoSink } from '@/domain/device-mirror/repositories/MirrorVideoSink'
 import { initialDeviceMirrorState, isLive } from './DeviceMirrorContract'
 import type { DeviceMirrorEffect, DeviceMirrorIntent, DeviceMirrorState } from './DeviceMirrorContract'
@@ -144,8 +145,8 @@ export const DeviceMirrorViewModel = defineViewModel<
 })
 
 /** Phụ thuộc dùng thật trong ứng dụng. Test truyền bộ khác vào. */
-export const deviceMirrorDeps = (serial: string, sink: MirrorVideoSink): DeviceMirrorDeps => ({
-  mirror: clientContainer.deviceMirror.repository,
+export const deviceMirrorDeps = (access: AdbAccess, serial: string, sink: MirrorVideoSink): DeviceMirrorDeps => ({
+  mirror: mirrorRepositoryFor(access),
   videoSink: sink,
   serial,
 })

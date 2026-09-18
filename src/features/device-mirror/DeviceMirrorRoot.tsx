@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { clientContainer } from '@/di/client'
+import type { AdbAccess } from '@/domain/adb/entities/AdbAccess'
 import { DeviceMirrorPanel } from './DeviceMirrorPanel'
 import { DeviceMirrorViewModel, deviceMirrorDeps } from './DeviceMirrorViewModel'
 
 export interface DeviceMirrorRootProps {
+  /** Cùng đường tới máy với màn log đang chứa ô này — xem `AdbAccess`. */
+  access: AdbAccess
   serial: string
   /**
    * Người dùng bấm đóng ô. Chủ ô (màn logcat) đáp lại bằng cách GỠ Root khỏi
@@ -40,7 +43,7 @@ export interface DeviceMirrorRootProps {
  * vô hại: Provider cố ý bỏ qua thay đổi tham chiếu `deps`, và `attachSurface`
  * giữ nguyên danh tính nên ref callback không chạy lại.
  */
-export function DeviceMirrorRoot({ serial, onClose }: DeviceMirrorRootProps) {
+export function DeviceMirrorRoot({ access, serial, onClose }: DeviceMirrorRootProps) {
   const [sink] = useState(() => clientContainer.deviceMirror.createVideoSink())
 
   useEffect(() => () => sink.dispose(), [sink])
@@ -53,7 +56,7 @@ export function DeviceMirrorRoot({ serial, onClose }: DeviceMirrorRootProps) {
   )
 
   return (
-    <DeviceMirrorViewModel.Provider deps={deviceMirrorDeps(serial, sink)}>
+    <DeviceMirrorViewModel.Provider deps={deviceMirrorDeps(access, serial, sink)}>
       <DeviceMirrorPanel attachSurface={attachSurface} onClose={onClose} />
     </DeviceMirrorViewModel.Provider>
   )

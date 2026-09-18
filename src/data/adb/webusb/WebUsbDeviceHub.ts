@@ -261,15 +261,19 @@ export class WebUsbDeviceHub {
   }
 
   /**
-   * Shell của một máy, chờ bắt tay xong nếu cần.
+   * Transport `Adb` của một máy, chờ bắt tay xong nếu cần.
    *
    * Tải lại trang là sổ này trống — quyền USB thì trình duyệt nhớ, còn kết
    * nối thì không. Nên trước khi trả lời "không thấy máy", phải mở observer
    * (nó nhận lại mọi máy đã cho phép) rồi đợi máy bắt tay xong. Đợi có trần:
    * lâu hơn thế là người dùng chưa bấm "Cho phép" trên điện thoại, và câu
    * trả lời đúng lúc đó là lỗi `forbidden` nói đúng việc ấy.
+   *
+   * `Adb` trả về vẫn THUỘC hub: người gọi (mirror đẩy scrcpy-server lên đúng
+   * transport này) không được `close()` nó — logcat có thể đang chảy trên
+   * cùng kết nối.
    */
-  async shellReady(serial: string, signal?: AbortSignal, timeoutMs = 20_000): Promise<Result<TangoAdbShell>> {
+  async adbReady(serial: string, signal?: AbortSignal, timeoutMs = 20_000): Promise<Result<Adb>> {
     const observer = await this.#observe()
     if (!observer.ok) return observer
 
@@ -298,16 +302,30 @@ export class WebUsbDeviceHub {
       })
     }
     if (signal?.aborted === true) return err(AppErrors.cancelled('Đã huỷ.'))
-    return this.shellFor(serial)
+    return this.adbFor(serial)
+  }
+
+  /** Shell của một máy, chờ bắt tay xong nếu cần — `adbReady` bọc thành `TangoAdbShell`. */
+  async shellReady(serial: string, signal?: AbortSignal, timeoutMs = 20_000): Promise<Result<TangoAdbShell>> {
+    const adb = await this.adbReady(serial, signal, timeoutMs)
+    if (!adb.ok) return adb
+    return ok(new TangoAdbShell(adb.value))
   }
 
   /** Shell của một máy ĐÃ bắt tay xong. Máy chưa xong thì nói rõ đang ở bước nào. */
   shellFor(serial: string): Result<TangoAdbShell> {
+    const adb = this.adbFor(serial)
+    if (!adb.ok) return adb
+    return ok(new TangoAdbShell(adb.value))
+  }
+
+  /** `Adb` của một máy ĐÃ bắt tay xong. Máy chưa xong thì nói rõ đang ở bước nào. */
+  adbFor(serial: string): Result<Adb> {
     const link = this.#links.get(serial)
     if (link === undefined) {
       return err(AppErrors.notFound('Không còn thấy thiết bị này. Chọn lại máy ở danh sách.'))
     }
-    if (link.adb !== null && link.state === 'device') return ok(new TangoAdbShell(link.adb))
+    if (link.adb !== null && link.state === 'device') return ok(link.adb)
     switch (link.state) {
       case 'connecting':
       case 'unauthorized':

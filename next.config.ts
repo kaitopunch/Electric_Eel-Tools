@@ -46,7 +46,9 @@ const securityHeaders = [
   // theo Referer sang trang ngoài.
   { key: 'Referrer-Policy', value: 'same-origin' },
   // `usb=(self)` là mặc định của trình duyệt, ghi ra để ai đọc header biết
-  // Logcat cần WebUSB — thêm `usb=()` vào đây là tắt Logcat ở production.
+  // Logcat và Phản chiếu màn hình cần WebUSB — thêm `usb=()` vào đây là tắt
+  // cả hai ở production. Mirror WebUSB không cần nới CSP: jar tải cùng gốc
+  // (`connect-src 'self'`), decoder WebCodecs không dùng Worker/WASM.
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), usb=(self), interest-cohort=()' },
   { key: 'X-DNS-Prefetch-Control', value: 'off' },
 ]

@@ -12,6 +12,7 @@ import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { useCallback, useMemo, useState } from 'react'
 
+import type { AdbAccess } from '@/domain/adb/entities/AdbAccess'
 import { DeviceMirrorRoot } from '@/features/device-mirror/DeviceMirrorRoot'
 import { LinkIconButton } from '@/ui/components/NavLink'
 import { PageHeader } from '@/ui/components/PageHeader'
@@ -25,10 +26,13 @@ import { LogView } from './components/LogView'
 import { LOG_FONT_SIZES_REM, LogViewControls, useLogFontSize } from './components/LogViewControls'
 
 export interface AdbLogcatScreenProps {
+  /** Đường tới máy — ô mirror phải đi cùng đường với luồng log (cùng một `Adb` ở WebUSB). */
+  access: AdbAccess
   /**
-   * Máy chủ mở được luồng mirror (ADB bật + có scrcpy-server). Trang tính sẵn
-   * ở phía server để không hiện một nút chắc chắn hỏng; thiếu gì thì
-   * `readMirrorSettings` nói rõ trong log máy chủ.
+   * Mở được luồng mirror. Ở đường `server` nghĩa là máy chủ có scrcpy-server —
+   * trang tính sẵn ở phía server để không hiện một nút chắc chắn hỏng; thiếu
+   * gì thì `readMirrorSettings` nói rõ trong log máy chủ. Ở đường `webusb`
+   * luôn `true`: jar nằm trong `public/`, không phụ thuộc máy chủ.
    */
   mirrorAvailable: boolean
 }
@@ -55,7 +59,7 @@ const MIRROR_PANEL_WIDTH = 340
  * không cần biết gì về mirror. Mặc định ĐÓNG — mở là một `app_process` chạy
  * trên máy, không phải thứ tự động bật mỗi lần ai đó xem log.
  */
-export function AdbLogcatScreen({ mirrorAvailable }: AdbLogcatScreenProps) {
+export function AdbLogcatScreen({ access, mirrorAvailable }: AdbLogcatScreenProps) {
   const state = AdbLogcatViewModel.useState()
   const onIntent = AdbLogcatViewModel.useIntent()
 
@@ -176,7 +180,7 @@ export function AdbLogcatScreen({ mirrorAvailable }: AdbLogcatScreenProps) {
             {/* `key` theo serial: trang đã `key` Root của log theo `serial:package`
                 nên đổi máy là dựng lại cả màn, nhưng ghi rõ ở đây để không ai
                 tưởng ô mirror tự đổi máy được khi `serial` đổi. */}
-            <DeviceMirrorRoot key={state.serial} serial={state.serial} onClose={closeMirror} />
+            <DeviceMirrorRoot key={state.serial} access={access} serial={state.serial} onClose={closeMirror} />
           </Box>
         )}
       </Stack>

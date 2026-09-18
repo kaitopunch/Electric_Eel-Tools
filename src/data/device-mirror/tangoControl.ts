@@ -1,8 +1,7 @@
 // Không `import 'server-only'` ở đây — CỐ Ý: file này thuần quy đổi thông điệp
-// → lời gọi writer, không chạm `node:*`, và cần chạy được trong `node:test`
-// (`tangoControl.test.ts`). Hai người gọi duy nhất (`tangoSession.ts`,
-// `TangoMirrorGateway.ts`) đều mang `server-only`, nên nó vẫn không bao giờ
-// lọt vào bundle trình duyệt qua đường DI.
+// → lời gọi writer, không chạm `node:*`. Nó chạy ở CẢ HAI đường mirror: máy
+// chủ (`TangoMirrorGateway`) và trình duyệt (`webusb/WebUsbMirrorRepository`
+// qua `tangoSession.ts`), nên đây là một chỗ đổi cho cả hai.
 import {
   AndroidKeyEventAction,
   AndroidMotionEventAction,

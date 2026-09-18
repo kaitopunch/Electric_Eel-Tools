@@ -1,7 +1,7 @@
 import { AdbScrcpyExitedError } from '@yume-chan/adb-scrcpy'
 
 import { AppErrors, type AppError, isAppError } from '../../core/result'
-import { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './mirrorSettings'
+import { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './scrcpyServer'
 
 /**
  * Quy MỌI lỗi có thể nảy ra trong lúc dựng một phiên Tango về `AppError` có
@@ -10,7 +10,7 @@ import { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './mirrorSe
  * exception thay vì trả mã thoát).
  *
  * `serverOutput` là mảng dòng `client.output` (stderr của scrcpy-server) mà
- * `TangoMirrorGateway` tự gom trong lúc `start()` chạy — KHÔNG chỉ dựa vào
+ * `startTangoSession` tự gom trong lúc bắt tay — KHÔNG chỉ dựa vào
  * `thrown.output` của `AdbScrcpyExitedError`, vì có những lỗi (ví dụ
  * `videoStream` không bao giờ resolve) không đi kèm exception loại đó nhưng
  * server vẫn kịp in dòng lỗi ra `output` trước khi mọi thứ treo.

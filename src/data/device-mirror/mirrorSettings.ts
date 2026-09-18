@@ -2,6 +2,7 @@ import { statSync } from 'node:fs'
 
 import { AppErrors, type Result, err, ok } from '../../core/result'
 import { isAdbEnabled } from '../adb/adbSettings'
+import { SCRCPY_JAR_NOT_FOUND_MESSAGE, SCRCPY_SERVER_VERSION } from './scrcpyServer'
 
 /**
  * Cấu hình của ô Phản chiếu (mirror) trong Logcat.
@@ -27,21 +28,12 @@ const DEFAULT_JAR_CANDIDATES = [
   '/usr/share/scrcpy/scrcpy-server',
 ] as const
 
-/** Bản mặc định của scrcpy-server hiện dùng trong plan. Đổi theo `brew upgrade scrcpy` thì đổi luôn ở đây. */
-const DEFAULT_VERSION = '3.3.4'
+/** Bản mặc định — một hằng dùng chung với đường WebUSB, xem `scrcpyServer.ts`. */
+const DEFAULT_VERSION = SCRCPY_SERVER_VERSION
 const VERSION_PATTERN = /^\d+\.\d+(\.\d+)?$/
 
-/**
- * Câu báo dùng chung cho MỌI chỗ không tìm thấy jar — kể cả lượt kiểm lại của
- * `jarSource.ts`/`mirrorFailure.ts` lúc đẩy jar thật lên máy (TOCTOU: file bị
- * xoá giữa lúc đọc settings và lúc dùng). Một câu, một chỗ sửa.
- */
-export const SCRCPY_JAR_NOT_FOUND_MESSAGE =
-  'Chưa có scrcpy-server trên máy chủ. Cài `brew install scrcpy` rồi đặt SCRCPY_SERVER_PATH=/opt/homebrew/share/scrcpy/scrcpy-server trong .env.'
-
-/** Jar có nhưng máy chủ không đọc được — đường dẫn thật đi trong `detail` (chỉ ghi log máy chủ). */
-export const JAR_UNREADABLE_MESSAGE =
-  'Máy chủ không có quyền đọc scrcpy-server. Kiểm tra quyền đọc của tệp tại SCRCPY_SERVER_PATH.'
+/** Hai câu báo về jar sống ở `scrcpyServer.ts` (không `node:fs`); re-export để chỗ gọi cũ không đổi. */
+export { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './scrcpyServer'
 
 /**
  * "Tồn tại" ở đây nghĩa là một TỆP THƯỞNG. `existsSync` trả `true` với cả thư

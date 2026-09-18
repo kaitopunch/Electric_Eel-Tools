@@ -4,7 +4,7 @@ import { accessSync, constants, createReadStream } from 'node:fs'
 import { Readable } from 'node:stream'
 
 import { AppErrors, type Result, err, ok } from '../../core/result'
-import { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './mirrorSettings'
+import { JAR_UNREADABLE_MESSAGE, SCRCPY_JAR_NOT_FOUND_MESSAGE } from './scrcpyServer'
 
 /**
  * Mở `scrcpy-server` (jar) thành luồng Web Streams để đẩy lên máy qua

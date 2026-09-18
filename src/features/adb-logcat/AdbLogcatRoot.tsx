@@ -1,13 +1,10 @@
 'use client'
 
-import type { AdbAccess } from '@/domain/adb/entities/AdbAccess'
 import { AdbLogcatViewModel, adbLogcatDeps } from './AdbLogcatViewModel'
 import { AdbLogcatScreen } from './AdbLogcatScreen'
 import type { AdbLogcatScreenProps } from './AdbLogcatScreen'
 
 export interface AdbLogcatRootProps extends AdbLogcatScreenProps {
-  /** Trang tính từ `ADB_ENABLED`; xem `AdbAccess`. */
-  access: AdbAccess
   serial: string
   packageName: string
 }
@@ -24,7 +21,8 @@ export interface AdbLogcatRootProps extends AdbLogcatScreenProps {
 export function AdbLogcatRoot({ access, serial, packageName, ...screenProps }: AdbLogcatRootProps) {
   return (
     <AdbLogcatViewModel.Provider deps={adbLogcatDeps(access, serial, packageName)}>
-      <AdbLogcatScreen {...screenProps} />
+      {/* `access` đi xuống cả Screen: ô mirror bên trong phải đi cùng đường với luồng log. */}
+      <AdbLogcatScreen access={access} {...screenProps} />
     </AdbLogcatViewModel.Provider>
   )
 }
